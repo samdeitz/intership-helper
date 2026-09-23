@@ -1,0 +1,4 @@
+services:
+  db:
+    # Production clients connect over Docker's network, not a host port.
+    ports: !reset []

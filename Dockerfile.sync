@@ -13,6 +13,5 @@ RUN mkdir -p /app/logs
 # Load the sync entrypoint and every local import without contacting the DB or sources.
 RUN npx tsx scripts/sync-internships.ts --help >/dev/null
 
-# Always write a persistent JSON copy alongside stdout (mounted to ./logs on host)
-# Writes logs/sync-latest.json plus timestamped history, then prunes to 20 most recent
-CMD ["sh", "-c", "npm run db:sync -- --log-file=logs/sync-latest.json && cp logs/sync-latest.json logs/sync-$(date -u +%Y-%m-%dT%H-%M-%SZ).json 2>/dev/null || true; npx tsx scripts/prune-sync-history.ts 2>&1 || true"]
+# Persist the latest log, archive successful runs, and preserve sync failures.
+CMD ["sh", "scripts/run-sync.sh"]

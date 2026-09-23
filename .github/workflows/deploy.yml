@@ -26,38 +26,47 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
 
+    env:
+      PRODUCTION_ENV_FILE: ${{ vars.PRODUCTION_ENV_FILE || '/opt/internship-helper/.env.production' }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Verify production configuration
+        run: |
+          if [ ! -r "$PRODUCTION_ENV_FILE" ]; then
+            echo "::error::Missing or unreadable production env file: $PRODUCTION_ENV_FILE. Create it on the runner host or set the production environment variable PRODUCTION_ENV_FILE to its absolute path."
+            exit 1
+          fi
+          docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" config --quiet
+
       - name: Start database
-        run: docker compose --env-file /opt/intership-helper/.env.production up -d db
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" up -d db
 
       - name: Run database migrations
-        run: docker compose --env-file /opt/intership-helper/.env.production run --build --rm migrate
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" run --build --rm migrate
 
       - name: Sync internship data
-        run: docker compose --env-file /opt/intership-helper/.env.production run --build --rm sync
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" run --build --rm sync
 
       - name: Show database logs after migration failure
         if: failure()
-        run: docker compose --env-file /opt/intership-helper/.env.production logs --no-color db || docker logs intership-helper-postgres --tail 200 || true
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" logs --no-color db || docker logs intership-helper-postgres --tail 200 || true
 
       - name: Build and start application
-        run: docker compose --env-file /opt/intership-helper/.env.production up -d --build app
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" up -d --build app
 
       - name: Check application health
         run: |
           for i in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null; then
+            if curl --fail --silent http://127.0.0.1:3000/ > /dev/null &&
+               curl --fail --silent "http://127.0.0.1:3000/api/internships?page=1&limit=1" > /dev/null; then
               exit 0
             fi
             sleep 2
           done
-          docker compose --env-file /opt/intership-helper/.env.production logs app
+          docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" logs app
           exit 1
-
-      - name: Remove unused images
-        run: docker image prune -f

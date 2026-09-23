@@ -72,12 +72,55 @@ Pull requests and pushes to `main` run the `build` and `tests` checks in
 is intentionally a no-op until a test script is added to `package.json`.
 
 After CI passes on `main`, `.github/workflows/deploy.yml` deploys through a self-hosted
-runner labeled `homelab`. The runner host must have the repository checked out through
-the runner, Docker access, and `/opt/intership-helper/.env.production` containing the
+runner labeled `self-hosted`. The runner host must have the repository checked out through
+the runner, Docker access, and `/opt/internship-helper/.env.production` containing the
 production database settings. The workflow starts Postgres, runs the one-shot `migrate`
-container, then builds and starts the app.
+container, syncs internships, then builds and starts the app.
 
 To verify the runner before merging a deployment change, check that it is online under
-**Settings → Actions → Runners** and that its labels include `self-hosted` and `homelab`.
+**Settings → Actions → Runners** and that its labels include `self-hosted`.
 Merging to `main` starts CI first; the production workflow is then triggered only when CI
 finishes successfully.
+
+### Production configuration and automatic refresh
+
+The runner must be able to read `/opt/internship-helper/.env.production`. If your
+production settings already live elsewhere, set the `PRODUCTION_ENV_FILE` variable
+under **Settings → Environments → production → Environment variables** to that
+file's absolute path. Keep the file outside the runner checkout, which checkout
+cleans before each job. Use `.env.example` as a template and set `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`, and `POSTGRES_PORT` to the production database's
+existing settings. Changing these values does not change credentials in an
+already initialized Postgres volume.
+
+A missing env file stops deployment at the configuration check. The Node.js 20
+Actions deprecation warning is separate; workflows now use checkout/setup-node v6
+(Node.js 24 action runtime), while the application continues to use Node.js 26.
+The self-hosted runner must be version 2.329.0 or newer.
+
+The `Sync internships` GitHub Actions workflow runs hourly at 17 minutes past
+the hour (UTC), using this server's self-hosted runner. It launches a one-shot
+sync container and shares a concurrency group with deployments to prevent
+simultaneous imports. The workflow must be merged to `main` and the runner must
+stay online. GitHub may delay scheduled jobs. Manual imports are also available
+under **Actions → Sync internships → Run workflow**.
+
+Production uses `compose.production.yml` to keep Postgres on this project's
+Docker network without publishing port 5432 on the host. Other applications'
+containers and networks are not changed.
+
+Start the services locally with:
+
+```bash
+docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/internship-helper/.env.production up -d db
+docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/internship-helper/.env.production run --build --rm migrate
+docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/internship-helper/.env.production run --build --rm sync
+docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/internship-helper/.env.production up -d --build app
+```
+
+Inspect scheduled import output in the GitHub Actions run logs.
+
+Imports fetch SimplifyJobs and Canadian Tech listings and update Postgres, which
+is what the website reads. Reload the page to see refreshed data. Sync failures
+now fail the workflow. Successful runs archive JSON logs under
+`/opt/internship-helper/logs`, retaining the most recent 20 archives.

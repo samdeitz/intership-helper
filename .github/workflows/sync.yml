@@ -1,0 +1,42 @@
+name: Sync internships
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize imports with production deployments.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: self-hosted
+    environment: production
+    timeout-minutes: 30
+    env:
+      PRODUCTION_ENV_FILE: ${{ vars.PRODUCTION_ENV_FILE || '/opt/internship-helper/.env.production' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Verify production configuration
+        run: |
+          if [ ! -r "$PRODUCTION_ENV_FILE" ]; then
+            echo "::error::Missing or unreadable production env file: $PRODUCTION_ENV_FILE. Create it on the runner host or set the production environment variable PRODUCTION_ENV_FILE to its absolute path."
+            exit 1
+          fi
+          docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" config --quiet
+
+      - name: Sync internship data
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" run --build --rm sync
+
+      - name: Show database logs after failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" logs --no-color --tail 100 db || true

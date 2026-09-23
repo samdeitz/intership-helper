@@ -8,3 +8,7 @@ README.md
 .env.*.local
 npm-debug.log*
 coverage
+
+# Local Actions runner and production configuration
+actions-runner/
+.env.production
