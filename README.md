@@ -98,12 +98,34 @@ Actions deprecation warning is separate; workflows now use checkout/setup-node v
 (Node.js 24 action runtime), while the application continues to use Node.js 26.
 The self-hosted runner must be version 2.329.0 or newer.
 
-The `Sync internships` GitHub Actions workflow runs hourly at 17 minutes past
-the hour (UTC), using this server's self-hosted runner. It launches a one-shot
-sync container and shares a concurrency group with deployments to prevent
-simultaneous imports. The workflow must be merged to `main` and the runner must
-stay online. GitHub may delay scheduled jobs. Manual imports are also available
-under **Actions → Sync internships → Run workflow**.
+The server's user systemd timer `internship-sync.timer` runs imports hourly at
+17 minutes past the hour (UTC), independently of GitHub's scheduler. It runs the
+production `intership-helper-sync:latest` image on the existing Docker network.
+Deployments rebuild that image. Configuration is installed outside the Actions
+checkout, and lingering keeps the timer active after logout and across reboots.
+A missed run while the server is offline is caught up when the timer starts.
+
+Install or update it as the runner user (`sam`) after the first production deploy:
+
+```bash
+sh scripts/install-sync-timer.sh
+systemctl --user start internship-sync.service # import immediately
+systemctl --user list-timers internship-sync.timer
+journalctl --user -u internship-sync.service -n 100 --no-pager
+```
+
+The installer requires access to Docker and permission to enable lingering; if
+that last step is denied, an administrator must run `loginctl enable-linger sam`.
+The production env file remains at `/opt/internship-helper/.env.production`.
+The timer, deployment import, and manual workflow share a host file lock to
+serialize imports. Reinstall the timer if its files in `deploy/sync/` change.
+
+The `Sync internships` GitHub Actions workflow is now manual-only. During the
+migration, disable the old workflow with `gh workflow disable sync.yml`; after
+the manual-only workflow is merged to `main`, re-enable it with
+`gh workflow enable sync.yml`. Manual imports are then available under
+**Actions → Sync internships → Run workflow**. To stop automatic imports, run
+`systemctl --user disable --now internship-sync.timer`.
 
 Production uses `compose.production.yml` to keep Postgres on this project's
 Docker network without publishing port 5432 on the host. Other applications'
@@ -118,7 +140,8 @@ docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/i
 docker compose -f docker-compose.yml -f compose.production.yml --env-file /opt/internship-helper/.env.production up -d --build app
 ```
 
-Inspect scheduled import output in the GitHub Actions run logs.
+Inspect scheduled import output in the systemd journal using the command above.
+Deployment and manual workflow imports also appear in GitHub Actions logs.
 
 Imports fetch SimplifyJobs and Canadian Tech listings and update Postgres, which
 is what the website reads. Reload the page to see refreshed data. Sync failures

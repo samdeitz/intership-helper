@@ -1,0 +1,16 @@
+name: internship-hourly-sync
+
+services:
+  sync:
+    image: intership-helper-sync:latest
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-intership-helper}
+    volumes:
+      - /opt/internship-helper/logs:/app/logs
+    networks:
+      - production
+
+networks:
+  production:
+    external: true
+    name: intership-helper_default

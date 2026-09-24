@@ -1,8 +1,7 @@
 name: Sync internships
 
 on:
-  schedule:
-    - cron: '17 * * * *'
+  # Hourly scheduling lives in the server's internship-sync.timer.
   workflow_dispatch:
 
 permissions:
@@ -35,7 +34,9 @@ jobs:
           docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" config --quiet
 
       - name: Sync internship data
-        run: docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" run --build --rm sync
+        run: |
+          mkdir -p "$HOME/.local/state/internship-helper"
+          flock --wait 1800 "$HOME/.local/state/internship-helper/sync.lock" docker compose -f docker-compose.yml -f compose.production.yml --env-file "$PRODUCTION_ENV_FILE" run --build --rm sync
 
       - name: Show database logs after failure
         if: failure()

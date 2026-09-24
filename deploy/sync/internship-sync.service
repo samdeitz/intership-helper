@@ -1,0 +1,7 @@
+[Unit]
+Description=Import internship listings into production Postgres
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock --wait 1800 %h/.local/state/internship-helper/sync.lock /usr/bin/docker compose -f %h/.local/share/internship-helper/sync/compose.yml --env-file /opt/internship-helper/.env.production run --rm --no-deps -T sync
+TimeoutStartSec=3600
